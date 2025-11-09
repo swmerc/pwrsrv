@@ -8,8 +8,8 @@ import (
 )
 
 type Config struct {
-	LocalServer LocalServerConfig `yaml:"localserver"`
-	PowerServer PowerServerConfig `yaml:"powerserver"`
+	LocalServer LocalServerConfig `yaml:"local"`
+	PowerServer PowerServerConfig `yaml:"power"`
 }
 
 type PowerServerConfig struct {

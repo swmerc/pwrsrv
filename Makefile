@@ -17,7 +17,7 @@ endif
 FLAGS := -ldflags "-X main.version=$(TAG)$(BRANCH)$(DIRTY)"
 
 #
-# The rest is just boilerplate cross platform
+# The rest is just really simple cross platform
 #
 
 .PHONY: all
@@ -29,7 +29,7 @@ clean:
 
 .PHONY: native
 native:
-	go build $(FLAGS) -o builds/native/pwrsrv
+	go build $(FLAGS)
 
 .PHONY: arm
 arm:
