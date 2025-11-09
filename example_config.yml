@@ -1,7 +1,12 @@
+# The power section describes the DLI Pro Switch itself.  All of these
+# need to be provided.  Note that https urls not only work, I recommend
+# them even if they are a pain to set up.
 power:
   url: http://192.168.1.1
   user: admin
-  password: redcatedpassword
+  password: redactedpassword
 
+# The local section is for the web server that is exposed when
+# running the app.  The default port is 8000 if not provided.
 local:
   port: 8001
