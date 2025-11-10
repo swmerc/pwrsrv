@@ -38,7 +38,12 @@ other stuff. Examples:
     $ wget http://127.0.0.1:8000/api/outlets/1/state -O - --quiet
     true
 
+    $ wget http://127.0.0.1:8000/api/outlets/sprinkler/state -O - --quiet
+    false
+
   Set single outlet state
   -----------------------
     $ curl -X PUT http://127.0.0.1:8000/api/outlets/1/state --data "off"
+
+    $ curl -X PUT http://127.0.0.1:8000/api/outlets/sprinkler/state --data "off"
 
