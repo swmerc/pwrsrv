@@ -9,10 +9,10 @@ import (
 
 type Config struct {
 	LocalServer LocalServerConfig `yaml:"local"`
-	PowerServer PowerServerConfig `yaml:"power"`
+	PowerServer DLIProSwitchConfig `yaml:"power"`
 }
 
-type PowerServerConfig struct {
+type DLIProSwitchConfig struct {
 	Url      string `yaml:"url"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`

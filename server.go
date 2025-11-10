@@ -15,13 +15,13 @@ import (
 
 // startServer just first up the server and never returns
 func startServer(cfg Config) {
-	s := server{localConfig: cfg.LocalServer, webSwitchConfig: WebSwitchConfig{config: cfg.PowerServer}}
+	s := server{localConfig: cfg.LocalServer, webSwitchConfig: DLIProSwitch{config: cfg.PowerServer}}
 	s.run()
 }
 
 type server struct {
 	localConfig LocalServerConfig
-	webSwitchConfig WebSwitchConfig
+	webSwitchConfig DLIProSwitch
 }
 
 func (s *server) run() {
@@ -84,7 +84,7 @@ func (s *server) getOutlet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
-	if index, err := strconv.Atoi(chi.URLParam(r, "id")); err != nil {
+	if index, err := s.getIndexFromIdOrName(r); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else if outlet, err := s.webSwitchConfig.GetOutlet(index); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -94,7 +94,7 @@ func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) setOutletState(w http.ResponseWriter, r *http.Request) {
-	if index, err := strconv.Atoi(chi.URLParam(r, "id")); err != nil {
+	if index, err := s.getIndexFromIdOrName(r); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	} else if on, err := getBodyIsOn(r); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -130,5 +130,31 @@ func getBodyIsOn(r *http.Request) (bool, error) {
 	}
 
 	return result, nil
+}
+
+func (s *server) getIndexFromIdOrName(r *http.Request) (int, error) {
+	// Grab the id
+	id := chi.URLParam(r, "id")
+
+	// See if it is a port index
+	if index, err := strconv.Atoi(id); err == nil {
+		if index >= 0 && index <= s.webSwitchConfig.GetMaxIndex() {
+			return index, nil
+		}
+	}
+
+	// Look it up as a name.  This allows numbers for names, which is ... fun.
+	if webOutlets, err := s.webSwitchConfig.GetOutlets(); err != nil {
+		return -1, fmt.Errorf("unable to look up outlet name")
+	} else {
+		for i, outlet := range webOutlets {
+			if outlet.Name == id {
+				return i, nil
+			}
+		}
+	}
+
+	// Nope...
+	return -1, fmt.Errorf("did not find outlet with name %s", id)
 }
 

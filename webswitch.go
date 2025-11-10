@@ -22,11 +22,15 @@ type WebSwitchOutlet struct {
 	State bool   `json:"physical_state"`
 }
 
-type WebSwitchConfig struct {
-	config PowerServerConfig
+type DLIProSwitch struct {
+	config DLIProSwitchConfig
 }
 
-func (p *WebSwitchConfig) GetOutlets() ([]WebSwitchOutlet, error) {
+func (p *DLIProSwitch) GetMaxIndex() int {
+	return 7
+}
+
+func (p *DLIProSwitch) GetOutlets() ([]WebSwitchOutlet, error) {
 	var outlets []WebSwitchOutlet
 
 	if body, err := p.get("restapi/relay/outlets/"); err != nil {
@@ -38,7 +42,7 @@ func (p *WebSwitchConfig) GetOutlets() ([]WebSwitchOutlet, error) {
 	return outlets, nil
 }
 
-func (p *WebSwitchConfig) GetOutlet(index int) (WebSwitchOutlet, error) {
+func (p *DLIProSwitch) GetOutlet(index int) (WebSwitchOutlet, error) {
 	var outlet WebSwitchOutlet
 
 	if body, err := p.get("restapi/relay/outlets/" + fmt.Sprintf("%d/", index)); err != nil {
@@ -50,7 +54,7 @@ func (p *WebSwitchConfig) GetOutlet(index int) (WebSwitchOutlet, error) {
 	return outlet, nil
 }
 
-func (p *WebSwitchConfig) SetOutlet(index int, on bool) error {
+func (p *DLIProSwitch) SetOutlet(index int, on bool) error {
 	path := fmt.Sprintf("restapi/relay/outlets/%d/state/", index)
 	var value string
 
@@ -64,15 +68,15 @@ func (p *WebSwitchConfig) SetOutlet(index int, on bool) error {
 	return err
 }
 
-func (p *WebSwitchConfig) get(path string) ([]byte, error) {
+func (p *DLIProSwitch) get(path string) ([]byte, error) {
 	return p.performOperation(http.MethodGet, path, []byte{})
 }
 
-func (p *WebSwitchConfig) put(path string, value string) ([]byte, error) {
+func (p *DLIProSwitch) put(path string, value string) ([]byte, error) {
 	return p.performOperation(http.MethodPut, path, []byte(value))
 }
 
-func (p *WebSwitchConfig) performOperation(method string, path string, data []byte) ([]byte, error) {
+func (p *DLIProSwitch) performOperation(method string, path string, data []byte) ([]byte, error) {
 	// Create a client with digest auth
 	client := &http.Client{
 		Transport: &digest.Transport{
