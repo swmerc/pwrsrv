@@ -48,7 +48,7 @@ func getConfig(path string) (Config, error) {
 			err = fmt.Errorf("%s: empty server URL", path)
 		} else if len(config.ProSwitch.User) == 0 {
 			err = fmt.Errorf("%s: empty user", path)
-		} else if len(config.ProSwitch.User) == 0 {
+		} else if len(config.ProSwitch.Password) == 0 {
 			err = fmt.Errorf("%s: empty password", path)
 		}
 	}

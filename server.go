@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +25,7 @@ type server struct {
 	webSwitchConfig ProSwitch
 }
 
-func (s *server) run() {
+func (s *server) routes() http.Handler {
 	router := chi.NewRouter()
 
 	router.Route("/api/outlets", func(r chi.Router) {
@@ -34,9 +35,13 @@ func (s *server) run() {
 		r.Get("/{id}/state", s.getOutletState)
 	})
 
+	return router
+}
+
+func (s *server) run() {
 	log.Infof("Starting server on port %d", s.localConfig.Port)
 	srv := &http.Server{
-		Handler:      logRequest(router),
+		Handler:      logRequest(s.routes()),
 		Addr:         fmt.Sprintf(":%d", s.localConfig.Port),
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
@@ -45,15 +50,16 @@ func (s *server) run() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-// Simplified outlet with name and proper boolean
+// Simplified outlet with name and proper boolean.  Index is the 1-based
+// number printed on the hardware, not the 0-based index the switch API uses.
 type Outlet struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	On    bool   `json:"on"`
 }
 
-func NewOutlet(webOutlet ProSwitchOutlet, index int) Outlet {
-	return Outlet{Index: index, Name: webOutlet.Name, On: webOutlet.State}
+func NewOutlet(webOutlet ProSwitchOutlet, switchIndex int) Outlet {
+	return Outlet{Index: switchIndex + 1, Name: webOutlet.Name, On: webOutlet.State}
 }
 
 func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
@@ -61,12 +67,8 @@ func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		outlets := make([]Outlet, 0, len(webOutlets))
-		index := 1
-		for _, webOutlet := range webOutlets {
-			outlet := NewOutlet(webOutlet, index)
-			index++
-
-			outlets = append(outlets, outlet)
+		for i, webOutlet := range webOutlets {
+			outlets = append(outlets, NewOutlet(webOutlet, i))
 		}
 
 		if body, err := json.Marshal(outlets); err != nil {
@@ -78,10 +80,8 @@ func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getOutlet(w http.ResponseWriter, r *http.Request) {
-	if index, err := s.getIndexFromIdOrName(r); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	} else if outlet, err := s.webSwitchConfig.GetOutlet(index); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if index, outlet, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
 	} else if body, err := json.Marshal(NewOutlet(outlet, index)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
@@ -90,10 +90,8 @@ func (s *server) getOutlet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
-	if index, err := s.getIndexFromIdOrName(r); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	} else if outlet, err := s.webSwitchConfig.GetOutlet(index); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if _, outlet, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
 	} else {
 		state := "on"
 		if outlet.State == false {
@@ -106,10 +104,10 @@ func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) setOutletState(w http.ResponseWriter, r *http.Request) {
-	if index, err := s.getIndexFromIdOrName(r); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if index, _, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
 	} else if on, err := getBodyIsOn(r); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	} else if err := s.webSwitchConfig.SetOutlet(index, on); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -144,28 +142,45 @@ func getBodyIsOn(r *http.Request) (bool, error) {
 	return result, nil
 }
 
-func (s *server) getIndexFromIdOrName(r *http.Request) (int, error) {
+var errOutletNotFound = errors.New("outlet not found")
+
+// writeLookupError reports a failure from lookupOutlet, blaming the client
+// for a bad id and the switch for anything else
+func writeLookupError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errOutletNotFound) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	} else {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// lookupOutlet finds the outlet for the id in the URL, which is either a
+// 1-based outlet number matching the hardware labels or an outlet name.  It
+// checks against the outlets the switch actually has and returns the 0-based
+// index the switch API uses along with the outlet itself.
+func (s *server) lookupOutlet(r *http.Request) (int, ProSwitchOutlet, error) {
 	// Grab the id
 	id := chi.URLParam(r, "id")
 
-	// See if it is a port index
-	if index, err := strconv.Atoi(id); err == nil {
-		if index >= 0 && index <= s.webSwitchConfig.GetMaxIndex() {
-			return index, nil
+	webOutlets, err := s.webSwitchConfig.GetOutlets()
+	if err != nil {
+		return -1, ProSwitchOutlet{}, fmt.Errorf("unable to get outlets: %w", err)
+	}
+
+	// See if it is an outlet number
+	if number, err := strconv.Atoi(id); err == nil {
+		if number >= 1 && number <= len(webOutlets) {
+			return number - 1, webOutlets[number-1], nil
 		}
 	}
 
 	// Look it up as a name.  This allows numbers for names, which is ... fun.
-	if webOutlets, err := s.webSwitchConfig.GetOutlets(); err != nil {
-		return -1, fmt.Errorf("unable to look up outlet name")
-	} else {
-		for i, outlet := range webOutlets {
-			if outlet.Name == id {
-				return i, nil
-			}
+	for i, outlet := range webOutlets {
+		if outlet.Name == id {
+			return i, outlet, nil
 		}
 	}
 
 	// Nope...
-	return -1, fmt.Errorf("did not find outlet with name %s", id)
+	return -1, ProSwitchOutlet{}, fmt.Errorf("%w: %s", errOutletNotFound, id)
 }

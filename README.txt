@@ -8,41 +8,54 @@ are.
 
 What this does is enable a fairly simple interface that can get and set current
 power state.  It intentionally ignores transient states along with a ton of
-other stuff. Examples:
+other stuff.
+
+Outlets can be referred to by name or by number.  Numbers start at 1 and match
+the labels on the hardware, even though the switch's own REST API counts from
+0.  Names are whatever you've configured on the switch.  An unknown outlet
+returns 400 Bad Request.
+
+Examples:
 
   Get all outlets
   ---------------
     $ wget http://127.0.0.1:8000/api/outlets -O - --quiet | jq
     [
         {
+            "index": 1,
             "name": "sprinkler",
             "on": false
         },
         {
+            "index": 2,
             "name": "disco ball",
-            "on": false
+            "on": true
         },
         /* REDACTED */
     ]
 
   Get single outlet
   -----------------
-    $ wget http://127.0.0.1:8000/api/outlets/1 -O - --quiet | jq
+    $ wget http://127.0.0.1:8000/api/outlets/2 -O - --quiet | jq
     {
+        "index": 2,
         "name": "disco ball",
         "on": true
     }
 
   Get single outlet state
-  -----------------
-    $ wget http://127.0.0.1:8000/api/outlets/1/state -O - --quiet
-    true
+  -----------------------
+    $ wget http://127.0.0.1:8000/api/outlets/2/state -O - --quiet
+    on
 
     $ wget http://127.0.0.1:8000/api/outlets/sprinkler/state -O - --quiet
-    false
+    off
 
   Set single outlet state
   -----------------------
+  The body can be "on", "true", "off" or "false".  Anything else returns 400
+  Bad Request.
+
     $ curl -X PUT http://127.0.0.1:8000/api/outlets/1/state --data "off"
 
     $ curl -X PUT http://127.0.0.1:8000/api/outlets/sprinkler/state --data "off"

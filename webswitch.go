@@ -27,10 +27,6 @@ type ProSwitch struct {
 	config ProSwitchConfig
 }
 
-func (p *ProSwitch) GetMaxIndex() int {
-	return 7
-}
-
 func (p *ProSwitch) GetOutlets() ([]ProSwitchOutlet, error) {
 	var outlets []ProSwitchOutlet
 
@@ -112,9 +108,15 @@ func (p *ProSwitch) performOperation(method string, path string, data []byte) ([
 	defer response.Body.Close()
 
 	// Process the body
-	if body, err := io.ReadAll(response.Body); err != nil {
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
 		return nil, err
-	} else {
-		return body, nil
 	}
+
+	// Anything but success means the operation did not happen
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return nil, fmt.Errorf("%s %s: %s", method, url, response.Status)
+	}
+
+	return body, nil
 }
