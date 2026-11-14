@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ func (p *ProSwitch) GetOutlets(ctx context.Context) ([]ProSwitchOutlet, error) {
 	return outlets, nil
 }
 
-func (p *ProSwitch) SetOutlet(ctx context.Context, index int, on bool) error {
+func (p *ProSwitch) SetOutletState(ctx context.Context, index int, on bool) error {
 	path := fmt.Sprintf("restapi/relay/outlets/%d/state/", index)
 	var value string
 
@@ -81,6 +82,18 @@ func (p *ProSwitch) SetOutlet(ctx context.Context, index int, on bool) error {
 	} else {
 		value = "value=false"
 	}
+
+	_, err := p.put(ctx, path, value)
+	return err
+}
+
+// SetOutletName renames an outlet.  Unlike state, the switch takes the name
+// as plain text rather than JSON (quoting it ends up in the name), but it does
+// percent-decode the form value.  Spaces go over as %20 rather than + since
+// it's not clear the switch treats + as a space.
+func (p *ProSwitch) SetOutletName(ctx context.Context, index int, name string) error {
+	path := fmt.Sprintf("restapi/relay/outlets/%d/name/", index)
+	value := "value=" + strings.ReplaceAll(url.QueryEscape(name), "+", "%20")
 
 	_, err := p.put(ctx, path, value)
 	return err

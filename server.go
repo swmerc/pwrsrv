@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,8 @@ func (s *server) routes() http.Handler {
 		r.Get("/{id}", s.getOutlet)
 		r.Put("/{id}/state", s.setOutletState)
 		r.Get("/{id}/state", s.getOutletState)
+		r.Get("/{id}/name", s.getOutletName)
+		r.Put("/{id}/name", s.setOutletName)
 	})
 
 	return router
@@ -106,7 +109,27 @@ func (s *server) setOutletState(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	} else if index, _, err := s.lookupOutlet(r); err != nil {
 		writeLookupError(w, err)
-	} else if err := s.webSwitchConfig.SetOutlet(r.Context(), index, on); err != nil {
+	} else if err := s.webSwitchConfig.SetOutletState(r.Context(), index, on); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *server) getOutletName(w http.ResponseWriter, r *http.Request) {
+	if _, outlet, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(outlet.Name))
+	}
+}
+
+func (s *server) setOutletName(w http.ResponseWriter, r *http.Request) {
+	// Check the body first so bad input doesn't cost a trip to the switch
+	if name, err := getBodyName(r); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	} else if index, _, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
+	} else if err := s.webSwitchConfig.SetOutletName(r.Context(), index, name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -150,6 +173,21 @@ func getBodyIsOn(r *http.Request) (bool, error) {
 	return result, nil
 }
 
+// The new name is the whole body, minus surrounding whitespace
+func getBodyName(r *http.Request) (string, error) {
+	bytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+
+	name := strings.TrimSpace(string(bytes))
+	if len(name) == 0 {
+		return "", fmt.Errorf("empty name")
+	}
+
+	return name, nil
+}
+
 var errOutletNotFound = errors.New("outlet not found")
 
 // writeLookupError reports a failure from lookupOutlet, blaming the client
@@ -167,8 +205,13 @@ func writeLookupError(w http.ResponseWriter, err error) {
 // checks against the outlets the switch actually has and returns the 0-based
 // index the switch API uses along with the outlet itself.
 func (s *server) lookupOutlet(r *http.Request) (int, ProSwitchOutlet, error) {
-	// Grab the id
-	id := chi.URLParam(r, "id")
+	// Grab the id.  chi hands back the raw path segment when the request
+	// escapes anything unusual (say "%26" for "&"), so unescape it to match
+	// names with those characters in them.
+	id, err := url.PathUnescape(chi.URLParam(r, "id"))
+	if err != nil {
+		return -1, ProSwitchOutlet{}, fmt.Errorf("%w: %s", errOutletNotFound, chi.URLParam(r, "id"))
+	}
 
 	webOutlets, err := s.webSwitchConfig.GetOutlets(r.Context())
 	if err != nil {

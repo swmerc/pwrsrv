@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,7 @@ func TestContentTypes(t *testing.T) {
 		"/api/outlets":         "application/json",
 		"/api/outlets/1":       "application/json",
 		"/api/outlets/1/state": "text/plain",
+		"/api/outlets/1/name":  "text/plain",
 	}
 	for path, want := range tests {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -104,7 +106,9 @@ func TestUnknownOutlet(t *testing.T) {
 	requests := []struct{ method, suffix, body string }{
 		{http.MethodGet, "", ""},
 		{http.MethodGet, "/state", ""},
+		{http.MethodGet, "/name", ""},
 		{http.MethodPut, "/state", "on"},
+		{http.MethodPut, "/name", "lamp"},
 	}
 	for _, id := range []string{"nope", "0", "9", "-1", "02", "+2"} {
 		for _, req := range requests {
@@ -227,6 +231,98 @@ func TestSetOutletStateSwitchRejects(t *testing.T) {
 	}
 	if fake.state(0) {
 		t.Errorf("outlet changed despite switch rejecting the PUT")
+	}
+}
+
+func TestGetOutletName(t *testing.T) {
+	_, h := newTestServer(t)
+
+	tests := map[string]string{
+		"1":            "sprinkler",
+		"2":            "disco ball",
+		"disco%20ball": "disco ball",
+		"8":            "outlet8",
+	}
+	for id, want := range tests {
+		code, body := doRequest(t, h, http.MethodGet, "/api/outlets/"+id+"/name", "")
+		if code != http.StatusOK {
+			t.Fatalf("GET %s: status = %d, body = %q", id, code, body)
+		}
+		if body != want {
+			t.Errorf("GET %s: body = %q, want %q", id, body, want)
+		}
+	}
+}
+
+func TestLookupEscapedName(t *testing.T) {
+	outlets := defaultOutlets()
+	outlets[4].Name = `hot & "cold"/50%`
+	_, h := newTestServerWith(t, outlets...)
+
+	code, body := doRequest(t, h, http.MethodGet, "/api/outlets/"+url.PathEscape(outlets[4].Name)+"/name", "")
+	if code != http.StatusOK || body != outlets[4].Name {
+		t.Errorf("status = %d, body = %q, want %q", code, body, outlets[4].Name)
+	}
+}
+
+func TestSetOutletName(t *testing.T) {
+	fake, h := newTestServer(t)
+
+	tests := []struct {
+		id          string
+		body        string
+		switchIndex int
+		want        string
+	}{
+		{"3", "lava lamp", 2, "lava lamp"},
+		{"lava%20lamp", "  heater\n", 2, "heater"},
+		{"sprinkler", "hose", 0, "hose"},
+	}
+	for _, tc := range tests {
+		code, body := doRequest(t, h, http.MethodPut, "/api/outlets/"+tc.id+"/name", tc.body)
+		if code != http.StatusOK {
+			t.Fatalf("PUT %s %q: status = %d, body = %q", tc.id, tc.body, code, body)
+		}
+		if got := fake.name(tc.switchIndex); got != tc.want {
+			t.Errorf("PUT %s %q: name = %q, want %q", tc.id, tc.body, got, tc.want)
+		}
+	}
+
+	// And the new name reads back and works for lookups
+	code, body := doRequest(t, h, http.MethodGet, "/api/outlets/3/name", "")
+	if code != http.StatusOK || body != "heater" {
+		t.Errorf("GET outlet 3 name: status = %d, body = %q", code, body)
+	}
+	code, body = doRequest(t, h, http.MethodGet, "/api/outlets/heater/state", "")
+	if code != http.StatusOK || body != "off" {
+		t.Errorf("GET heater state: status = %d, body = %q", code, body)
+	}
+}
+
+func TestSetOutletNameBadBody(t *testing.T) {
+	fake, h := newTestServer(t)
+	fake.failStatus = http.StatusInternalServerError
+
+	// Rejected before the switch is contacted, so the switch being down
+	// doesn't matter
+	for _, body := range []string{"", "  \n"} {
+		code, _ := doRequest(t, h, http.MethodPut, "/api/outlets/1/name", body)
+		if code != http.StatusBadRequest {
+			t.Errorf("body %q: status = %d, want %d", body, code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestSetOutletNameSwitchRejects(t *testing.T) {
+	fake, h := newTestServer(t)
+	fake.failPutStatus = http.StatusForbidden
+
+	code, _ := doRequest(t, h, http.MethodPut, "/api/outlets/1/name", "hose")
+	if code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", code, http.StatusInternalServerError)
+	}
+	if got := fake.name(0); got != "sprinkler" {
+		t.Errorf("name = %q, want unchanged", got)
 	}
 }
 

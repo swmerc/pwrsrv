@@ -34,6 +34,10 @@ Pro Switch (DLI LP9). Single `main` package, no subpackages.
   outlet list from the switch, accepts only plainly written numbers within
   the real outlet count, then falls back to matching names. Unknown ids
   return 400 via `errOutletNotFound`; switch failures return 500.
+- **URL params can arrive escaped.** chi returns the raw path segment when
+  a request escapes anything beyond the defaults (`%26`, `%22`, `%2F`...),
+  so `lookupOutlet` runs the id through `url.PathUnescape`. Do the same for
+  any new path parameter.
 - **Build the switch client once.** Use `NewProSwitch`; it holds the one
   `http.Client` so connections get reused. Don't create transports per
   request (that leaked connections before).
@@ -41,6 +45,11 @@ Pro Switch (DLI LP9). Single `main` package, no subpackages.
   `proSwitchTimeout` (5s), and a handler may make two in a row, so the total
   must stay under the local server's 15s `WriteTimeout`. Handlers pass
   `r.Context()` to the client.
+- **PUT bodies to the switch are form-encoded `value=...`.** State sends
+  a bare `true`/`false`. `SetOutletName` sends the plain name, not JSON:
+  on hardware a quoted name kept its quotes. The switch does percent-decode
+  the value (`%22` arrived as `"`), so keep escaping it; spaces go as `%20`
+  because it's unverified whether the switch reads `+` as a space.
 - **Non-2xx from the switch is an error** in `performOperation`. Otherwise a
   rejected PUT looks like success.
 - **401 in tests is special.** The digest transport handles 401 itself, so a

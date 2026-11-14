@@ -64,3 +64,17 @@ Examples:
 
     $ curl -X PUT http://127.0.0.1:8000/api/outlets/sprinkler/state --data "off"
 
+  Get single outlet name
+  ----------------------
+    $ wget http://127.0.0.1:8000/api/outlets/2/name -O - --quiet
+    disco ball
+
+  Set single outlet name
+  ----------------------
+  The body is the new name, with surrounding whitespace ignored.  An empty
+  name returns 400 Bad Request.  Avoid names that are plain numbers, since
+  outlet numbers are matched before names.
+
+    $ curl -X PUT http://127.0.0.1:8000/api/outlets/3/name --data "lava lamp"
+
+    $ curl -X PUT "http://127.0.0.1:8000/api/outlets/lava%20lamp/name" --data "heater"

@@ -28,12 +28,12 @@ func TestProSwitchGetOutlets(t *testing.T) {
 	}
 }
 
-func TestProSwitchSetOutlet(t *testing.T) {
+func TestProSwitchSetOutletState(t *testing.T) {
 	fake, srv := newFakeSwitch(t, defaultOutlets()...)
 	p := newTestProSwitch(srv.URL)
 
-	if err := p.SetOutlet(context.Background(), 0, true); err != nil {
-		t.Fatalf("SetOutlet on: %v", err)
+	if err := p.SetOutletState(context.Background(), 0, true); err != nil {
+		t.Fatalf("SetOutletState on: %v", err)
 	}
 	if fake.lastPutPath != "/restapi/relay/outlets/0/state/" {
 		t.Errorf("PUT path = %q", fake.lastPutPath)
@@ -42,17 +42,47 @@ func TestProSwitchSetOutlet(t *testing.T) {
 		t.Errorf("PUT body = %q", fake.lastPutBody)
 	}
 	if !fake.state(0) {
-		t.Errorf("outlet 0 not on after SetOutlet(true)")
+		t.Errorf("outlet 0 not on after SetOutletState(true)")
 	}
 
-	if err := p.SetOutlet(context.Background(), 0, false); err != nil {
-		t.Fatalf("SetOutlet off: %v", err)
+	if err := p.SetOutletState(context.Background(), 0, false); err != nil {
+		t.Fatalf("SetOutletState off: %v", err)
 	}
 	if fake.lastPutBody != "value=false" {
 		t.Errorf("PUT body = %q", fake.lastPutBody)
 	}
 	if fake.state(0) {
-		t.Errorf("outlet 0 still on after SetOutlet(false)")
+		t.Errorf("outlet 0 still on after SetOutletState(false)")
+	}
+}
+
+func TestProSwitchSetOutletName(t *testing.T) {
+	fake, srv := newFakeSwitch(t, defaultOutlets()...)
+	p := newTestProSwitch(srv.URL)
+
+	// Characters that need form escaping, plus quotes that must not be added
+	name := `lava "lamp" & co=1+2`
+	if err := p.SetOutletName(context.Background(), 2, name); err != nil {
+		t.Fatalf("SetOutletName: %v", err)
+	}
+	if fake.lastPutPath != "/restapi/relay/outlets/2/name/" {
+		t.Errorf("PUT path = %q", fake.lastPutPath)
+	}
+	if want := "value=lava%20%22lamp%22%20%26%20co%3D1%2B2"; fake.lastPutBody != want {
+		t.Errorf("PUT body = %q, want %q", fake.lastPutBody, want)
+	}
+	if got := fake.name(2); got != name {
+		t.Errorf("name = %q, want %q", got, name)
+	}
+}
+
+func TestProSwitchSetOutletNameRejected(t *testing.T) {
+	fake, srv := newFakeSwitch(t, defaultOutlets()...)
+	fake.failPutStatus = http.StatusForbidden
+	p := newTestProSwitch(srv.URL)
+
+	if err := p.SetOutletName(context.Background(), 0, "x"); err == nil {
+		t.Errorf("SetOutletName: expected error")
 	}
 }
 
@@ -80,8 +110,8 @@ func TestProSwitchTrailingSlashInUrl(t *testing.T) {
 	fake, srv := newFakeSwitch(t, defaultOutlets()...)
 	p := newTestProSwitch(srv.URL + "/")
 
-	if err := p.SetOutlet(context.Background(), 0, true); err != nil {
-		t.Fatalf("SetOutlet: %v", err)
+	if err := p.SetOutletState(context.Background(), 0, true); err != nil {
+		t.Fatalf("SetOutletState: %v", err)
 	}
 	if fake.lastPutPath != "/restapi/relay/outlets/0/state/" {
 		t.Errorf("PUT path = %q", fake.lastPutPath)
@@ -96,8 +126,8 @@ func TestProSwitchReusesConnections(t *testing.T) {
 		if _, err := p.GetOutlets(context.Background()); err != nil {
 			t.Fatalf("GetOutlets: %v", err)
 		}
-		if err := p.SetOutlet(context.Background(), 0, true); err != nil {
-			t.Fatalf("SetOutlet: %v", err)
+		if err := p.SetOutletState(context.Background(), 0, true); err != nil {
+			t.Fatalf("SetOutletState: %v", err)
 		}
 	}
 	if n := fake.conns(); n != 1 {
@@ -114,20 +144,20 @@ func TestProSwitchErrorStatus(t *testing.T) {
 	if _, err := p.GetOutlets(context.Background()); err == nil {
 		t.Errorf("GetOutlets: expected error")
 	}
-	if err := p.SetOutlet(context.Background(), 0, true); err == nil {
-		t.Errorf("SetOutlet: expected error")
+	if err := p.SetOutletState(context.Background(), 0, true); err == nil {
+		t.Errorf("SetOutletState: expected error")
 	}
 }
 
-func TestProSwitchSetOutletRejected(t *testing.T) {
+func TestProSwitchSetOutletStateRejected(t *testing.T) {
 	// A rejected PUT has no body to fail parsing on, so this relies on the
 	// status check
 	fake, srv := newFakeSwitch(t, defaultOutlets()...)
 	fake.failPutStatus = http.StatusForbidden
 	p := newTestProSwitch(srv.URL)
 
-	if err := p.SetOutlet(context.Background(), 0, true); err == nil {
-		t.Errorf("SetOutlet: expected error")
+	if err := p.SetOutletState(context.Background(), 0, true); err == nil {
+		t.Errorf("SetOutletState: expected error")
 	}
 }
 
@@ -135,8 +165,8 @@ func TestProSwitchMissingOutlet(t *testing.T) {
 	_, srv := newFakeSwitch(t, defaultOutlets()[:5]...)
 	p := newTestProSwitch(srv.URL)
 
-	if err := p.SetOutlet(context.Background(), 5, true); err == nil {
-		t.Errorf("SetOutlet: expected error")
+	if err := p.SetOutletState(context.Background(), 5, true); err == nil {
+		t.Errorf("SetOutletState: expected error")
 	}
 }
 
@@ -149,8 +179,8 @@ func TestProSwitchUnreachable(t *testing.T) {
 	if _, err := p.GetOutlets(context.Background()); err == nil {
 		t.Errorf("GetOutlets: expected error")
 	}
-	if err := p.SetOutlet(context.Background(), 0, true); err == nil {
-		t.Errorf("SetOutlet: expected error")
+	if err := p.SetOutletState(context.Background(), 0, true); err == nil {
+		t.Errorf("SetOutletState: expected error")
 	}
 }
 

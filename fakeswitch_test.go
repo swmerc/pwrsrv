@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,6 +125,24 @@ func (f *fakeSwitch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 
+	case len(parts) == 2 && parts[1] == "name" && r.Method == http.MethodPut:
+		body, _ := io.ReadAll(r.Body)
+		f.putCount++
+		f.lastPutPath = r.URL.Path
+		f.lastPutBody = string(body)
+		if f.failPutStatus != 0 {
+			http.Error(w, "nope", f.failPutStatus)
+			return
+		}
+		// Form encoded, with the value being the plain name
+		form, err := url.ParseQuery(string(body))
+		if err != nil || !form.Has("value") {
+			http.Error(w, "bad value", http.StatusBadRequest)
+			return
+		}
+		f.outlets[index].Name = form.Get("value")
+		w.WriteHeader(http.StatusNoContent)
+
 	default:
 		http.NotFound(w, r)
 	}
@@ -139,6 +158,12 @@ func (f *fakeSwitch) puts() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.putCount
+}
+
+func (f *fakeSwitch) name(index int) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.outlets[index].Name
 }
 
 func (f *fakeSwitch) state(index int) bool {
