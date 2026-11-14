@@ -9,7 +9,7 @@ Pro Switch (DLI LP9). Single `main` package, no subpackages.
   `grep -v level=info` to quiet them)
 - `go vet ./...` and `gofmt -l .` should both be clean
 - `make native` builds `./pwrsrv`; `make all` also cross-builds into
-  `builds/arm` and `builds/amd64`. The version comes from `git describe`
+  `builds/arm` (GOARM=5), `builds/arm64` and `builds/amd64`. The version comes from `git describe`
   via ldflags, so it needs tags (`v0.0.x`) to be meaningful.
 - `make clean` removes `builds/` entirely
 
