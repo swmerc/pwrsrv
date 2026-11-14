@@ -8,14 +8,15 @@ import (
 )
 
 type Config struct {
-	LocalServer LocalServerConfig `yaml:"local"`
-	PowerServer DLIProSwitchConfig `yaml:"power"`
+	LocalServer LocalServerConfig `yaml:"server"`
+	ProSwitch   ProSwitchConfig   `yaml:"proswitch"`
 }
 
-type DLIProSwitchConfig struct {
-	Url      string `yaml:"url"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
+type ProSwitchConfig struct {
+	Url        string `yaml:"url"`
+	User       string `yaml:"user"`
+	Password   string `yaml:"password"`
+	IgnoreCert bool   `yaml:"ignore_cert"`
 }
 
 type LocalServerConfig struct {
@@ -43,11 +44,11 @@ func getConfig(path string) (Config, error) {
 
 	// Save some potential pain later
 	if err == nil {
-		if len(config.PowerServer.Url) == 0 {
+		if len(config.ProSwitch.Url) == 0 {
 			err = fmt.Errorf("%s: empty server URL", path)
-		} else if len(config.PowerServer.User) == 0 {
+		} else if len(config.ProSwitch.User) == 0 {
 			err = fmt.Errorf("%s: empty user", path)
-		} else if len(config.PowerServer.User) == 0 {
+		} else if len(config.ProSwitch.User) == 0 {
 			err = fmt.Errorf("%s: empty password", path)
 		}
 	}

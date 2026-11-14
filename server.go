@@ -15,13 +15,13 @@ import (
 
 // startServer just first up the server and never returns
 func startServer(cfg Config) {
-	s := server{localConfig: cfg.LocalServer, webSwitchConfig: DLIProSwitch{config: cfg.PowerServer}}
+	s := server{localConfig: cfg.LocalServer, webSwitchConfig: ProSwitch{config: cfg.ProSwitch}}
 	s.run()
 }
 
 type server struct {
-	localConfig LocalServerConfig
-	webSwitchConfig DLIProSwitch
+	localConfig     LocalServerConfig
+	webSwitchConfig ProSwitch
 }
 
 func (s *server) run() {
@@ -47,12 +47,13 @@ func (s *server) run() {
 
 // Simplified outlet with name and proper boolean
 type Outlet struct {
-	Name string `json:"name"`
-	On   bool   `json:"on"`
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	On    bool   `json:"on"`
 }
 
-func NewOutlet(webOutlet WebSwitchOutlet) Outlet {
-	return Outlet{Name: webOutlet.Name, On: webOutlet.State }
+func NewOutlet(webOutlet ProSwitchOutlet, index int) Outlet {
+	return Outlet{Index: index, Name: webOutlet.Name, On: webOutlet.State}
 }
 
 func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
@@ -60,9 +61,14 @@ func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		outlets := make([]Outlet, 0, len(webOutlets))
+		index := 1
 		for _, webOutlet := range webOutlets {
-			outlets = append(outlets, NewOutlet(webOutlet))
+			outlet := NewOutlet(webOutlet, index)
+			index++
+
+			outlets = append(outlets, outlet)
 		}
+
 		if body, err := json.Marshal(outlets); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		} else {
@@ -72,11 +78,11 @@ func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getOutlet(w http.ResponseWriter, r *http.Request) {
-	if index, err := strconv.Atoi(chi.URLParam(r, "id")); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if index, err := s.getIndexFromIdOrName(r); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	} else if outlet, err := s.webSwitchConfig.GetOutlet(index); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-	} else if body, err := json.Marshal(NewOutlet(outlet)); err != nil {
+	} else if body, err := json.Marshal(NewOutlet(outlet, index)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		w.Write(body)
@@ -89,7 +95,13 @@ func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
 	} else if outlet, err := s.webSwitchConfig.GetOutlet(index); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
-		w.Write([]byte(fmt.Sprintf("%t", outlet.State)))
+		state := "on"
+		if outlet.State == false {
+			state = "off"
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(state))
 	}
 }
 
@@ -122,7 +134,7 @@ func getBodyIsOn(r *http.Request) (bool, error) {
 		switch value {
 		case "true", "on":
 			result = true
-		case "false", "off": 
+		case "false", "off":
 			result = false
 		default:
 			return false, fmt.Errorf("unexpected status")
@@ -157,4 +169,3 @@ func (s *server) getIndexFromIdOrName(r *http.Request) (int, error) {
 	// Nope...
 	return -1, fmt.Errorf("did not find outlet with name %s", id)
 }
-

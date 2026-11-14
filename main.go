@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -16,8 +18,9 @@ func main() {
 	cfgPath := flag.String("cfgpath", "config.yml", "Path to config file for the server")
 	flag.Parse()
 
+	log.Infof("version: %s", version)
+
 	if *showVersion {
-		fmt.Printf("version: %s", version)
 		os.Exit(0)
 	}
 

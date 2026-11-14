@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,22 +17,22 @@ import (
 // than digest auth at some point.
 //
 
-// WebSwitchOutlet is a subset of what Digital Loggers returns
-type WebSwitchOutlet struct {
+// ProSwitchOutlet is a subset of what Digital Loggers returns
+type ProSwitchOutlet struct {
 	Name  string `json:"name"`
 	State bool   `json:"physical_state"`
 }
 
-type DLIProSwitch struct {
-	config DLIProSwitchConfig
+type ProSwitch struct {
+	config ProSwitchConfig
 }
 
-func (p *DLIProSwitch) GetMaxIndex() int {
+func (p *ProSwitch) GetMaxIndex() int {
 	return 7
 }
 
-func (p *DLIProSwitch) GetOutlets() ([]WebSwitchOutlet, error) {
-	var outlets []WebSwitchOutlet
+func (p *ProSwitch) GetOutlets() ([]ProSwitchOutlet, error) {
+	var outlets []ProSwitchOutlet
 
 	if body, err := p.get("restapi/relay/outlets/"); err != nil {
 		return nil, err
@@ -42,19 +43,19 @@ func (p *DLIProSwitch) GetOutlets() ([]WebSwitchOutlet, error) {
 	return outlets, nil
 }
 
-func (p *DLIProSwitch) GetOutlet(index int) (WebSwitchOutlet, error) {
-	var outlet WebSwitchOutlet
+func (p *ProSwitch) GetOutlet(index int) (ProSwitchOutlet, error) {
+	var outlet ProSwitchOutlet
 
 	if body, err := p.get("restapi/relay/outlets/" + fmt.Sprintf("%d/", index)); err != nil {
-		return WebSwitchOutlet{}, err
+		return ProSwitchOutlet{}, err
 	} else if err := json.Unmarshal(body, &outlet); err != nil {
-		return WebSwitchOutlet{}, err
+		return ProSwitchOutlet{}, err
 	}
 
 	return outlet, nil
 }
 
-func (p *DLIProSwitch) SetOutlet(index int, on bool) error {
+func (p *ProSwitch) SetOutlet(index int, on bool) error {
 	path := fmt.Sprintf("restapi/relay/outlets/%d/state/", index)
 	var value string
 
@@ -68,20 +69,28 @@ func (p *DLIProSwitch) SetOutlet(index int, on bool) error {
 	return err
 }
 
-func (p *DLIProSwitch) get(path string) ([]byte, error) {
+func (p *ProSwitch) get(path string) ([]byte, error) {
 	return p.performOperation(http.MethodGet, path, []byte{})
 }
 
-func (p *DLIProSwitch) put(path string, value string) ([]byte, error) {
+func (p *ProSwitch) put(path string, value string) ([]byte, error) {
 	return p.performOperation(http.MethodPut, path, []byte(value))
 }
 
-func (p *DLIProSwitch) performOperation(method string, path string, data []byte) ([]byte, error) {
-	// Create a client with digest auth
+func (p *ProSwitch) performOperation(method string, path string, data []byte) ([]byte, error) {
+	// Create a client with digest auth that optionally ignores cert errors if the config says so.
+	//
+	// NOTE: This allows man in the middle attacks, so don't use it unless your DLI LP9 starts rejecting
+	//       perfectly fine certs and insists on using a self-signed one.
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.IgnoreCert},
+	}
+
 	client := &http.Client{
 		Transport: &digest.Transport{
-			Username: p.config.User,
-			Password: p.config.Password,
+			Username:  p.config.User,
+			Password:  p.config.Password,
+			Transport: transport,
 		},
 	}
 
