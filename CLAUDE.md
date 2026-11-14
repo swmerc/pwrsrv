@@ -57,3 +57,7 @@ Pro Switch (DLI LP9). Single `main` package, no subpackages.
 `README.txt` is the user-facing API documentation, with example requests and
 responses. Update it whenever endpoint behaviour, status codes or response
 formats change.
+
+When the user agrees to a commit, first bring `README.txt` and this file up
+to date with the changes being committed, then commit them together. Don't
+commit and fix the docs afterwards.
