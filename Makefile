@@ -21,11 +21,11 @@ FLAGS := -ldflags "-X main.version=$(TAG)$(BRANCH)$(DIRTY)"
 #
 
 .PHONY: all
-all: native arm amd64
+all: native arm arm64 amd64
 
 .PHONY: clean
 clean:
-	rm builds/*
+	rm -rf builds
 
 .PHONY: native
 native:
@@ -34,6 +34,10 @@ native:
 .PHONY: arm
 arm:
 	GOOS=linux GOARCH=arm GOARM=5 go build $(FLAGS) -o builds/arm/pwrsrv
+
+.PHONY: arm64
+arm64:
+	GOOS=linux GOARCH=arm64 go build $(FLAGS) -o builds/arm64/pwrsrv
 
 .PHONY: amd64
 amd64:

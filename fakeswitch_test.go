@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -25,6 +26,7 @@ type fakeSwitch struct {
 	lastPutBody string
 	lastHeaders http.Header
 	putCount    int
+	connCount   int
 
 	// When set, every request fails with this status
 	failStatus int
@@ -37,7 +39,15 @@ func newFakeSwitch(t *testing.T, outlets ...ProSwitchOutlet) (*fakeSwitch, *http
 	t.Helper()
 
 	f := &fakeSwitch{t: t, outlets: outlets}
-	srv := httptest.NewServer(f)
+	srv := httptest.NewUnstartedServer(f)
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			f.mu.Lock()
+			f.connCount++
+			f.mu.Unlock()
+		}
+	}
+	srv.Start()
 	t.Cleanup(srv.Close)
 
 	return f, srv
@@ -117,6 +127,12 @@ func (f *fakeSwitch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (f *fakeSwitch) conns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.connCount
 }
 
 func (f *fakeSwitch) puts() int {

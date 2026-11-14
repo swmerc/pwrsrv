@@ -24,6 +24,7 @@ proswitch:
   password: secret
   ignore_cert: true
 server:
+  address: 0.0.0.0
   port: 9000
 `)
 
@@ -33,7 +34,7 @@ server:
 	}
 
 	want := Config{
-		LocalServer: LocalServerConfig{Port: 9000},
+		LocalServer: LocalServerConfig{Address: "0.0.0.0", Port: 9000},
 		ProSwitch: ProSwitchConfig{
 			Url:        "https://192.168.1.1",
 			User:       "admin",
@@ -46,7 +47,7 @@ server:
 	}
 }
 
-func TestGetConfigDefaultPort(t *testing.T) {
+func TestGetConfigDefaults(t *testing.T) {
 	path := writeConfig(t, `
 proswitch:
   url: http://192.168.1.1
@@ -60,6 +61,12 @@ proswitch:
 	}
 	if cfg.LocalServer.Port != 8000 {
 		t.Errorf("port = %d, want 8000", cfg.LocalServer.Port)
+	}
+	if cfg.LocalServer.Address != "127.0.0.1" {
+		t.Errorf("address = %q, want 127.0.0.1", cfg.LocalServer.Address)
+	}
+	if cfg.ProSwitch.IgnoreCert {
+		t.Errorf("ignore_cert defaulted to true")
 	}
 }
 
@@ -79,17 +86,27 @@ func TestGetConfigErrors(t *testing.T) {
 		{
 			name:     "missing url",
 			contents: "proswitch:\n  user: admin\n  password: secret\n",
-			wantErr:  "empty server URL",
+			wantErr:  "proswitch: empty url",
 		},
 		{
 			name:     "missing user",
 			contents: "proswitch:\n  url: http://x\n  password: secret\n",
-			wantErr:  "empty user",
+			wantErr:  "proswitch: empty user",
 		},
 		{
 			name:     "missing password",
 			contents: "proswitch:\n  url: http://x\n  user: admin\n",
-			wantErr:  "empty password",
+			wantErr:  "proswitch: empty password",
+		},
+		{
+			name:     "old key names",
+			contents: "power:\n  url: http://x\n  user: admin\n  password: secret\nlocal:\n  port: 9000\n",
+			wantErr:  "field power not found",
+		},
+		{
+			name:     "misspelled key",
+			contents: "proswitch:\n  url: http://x\n  user: admin\n  pasword: secret\n",
+			wantErr:  "field pasword not found",
 		},
 		{
 			name:     "bad yaml",

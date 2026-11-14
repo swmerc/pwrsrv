@@ -18,11 +18,12 @@ func main() {
 	cfgPath := flag.String("cfgpath", "config.yml", "Path to config file for the server")
 	flag.Parse()
 
-	log.Infof("version: %s", version)
-
 	if *showVersion {
+		fmt.Printf("version: %s\n", version)
 		os.Exit(0)
 	}
+
+	log.Infof("version: %s", version)
 
 	// Grab the config
 	cfg, err := getConfig(*cfgPath)

@@ -31,6 +31,24 @@ func doRequest(t *testing.T, h http.Handler, method, path, body string) (int, st
 	return rec.Code, string(respBody)
 }
 
+func TestContentTypes(t *testing.T) {
+	_, h := newTestServer(t)
+
+	tests := map[string]string{
+		"/api/outlets":         "application/json",
+		"/api/outlets/1":       "application/json",
+		"/api/outlets/1/state": "text/plain",
+	}
+	for path, want := range tests {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if got := rec.Header().Get("Content-Type"); got != want {
+			t.Errorf("GET %s: Content-Type = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestGetAllOutlets(t *testing.T) {
 	_, h := newTestServer(t)
 
@@ -88,7 +106,7 @@ func TestUnknownOutlet(t *testing.T) {
 		{http.MethodGet, "/state", ""},
 		{http.MethodPut, "/state", "on"},
 	}
-	for _, id := range []string{"nope", "0", "9", "-1"} {
+	for _, id := range []string{"nope", "0", "9", "-1", "02", "+2"} {
 		for _, req := range requests {
 			path := "/api/outlets/" + id + req.suffix
 			code, _ := doRequest(t, h, req.method, path, req.body)
@@ -190,6 +208,13 @@ func TestSetOutletStateBadBody(t *testing.T) {
 	if !fake.state(1) {
 		t.Errorf("outlet changed despite bad body")
 	}
+
+	// Bad input is the client's fault even when the switch is down
+	fake.failStatus = http.StatusInternalServerError
+	code, _ = doRequest(t, h, http.MethodPut, "/api/outlets/2/state", "maybe")
+	if code != http.StatusBadRequest {
+		t.Errorf("switch down: status = %d, want %d", code, http.StatusBadRequest)
+	}
 }
 
 func TestSetOutletStateSwitchRejects(t *testing.T) {
@@ -228,9 +253,13 @@ func TestGetBodyIsOn(t *testing.T) {
 		{"true", true, false},
 		{"off", false, false},
 		{"false", false, false},
+		{"ON", true, false},
+		{"on\n", true, false},
+		{" Off ", false, false},
+		{"\tTRUE\r\n", true, false},
 		{"", false, true},
-		{"ON", false, true},
-		{"on\n", false, true},
+		{"maybe", false, true},
+		{"o n", false, true},
 	}
 	for _, tc := range tests {
 		req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(tc.body))

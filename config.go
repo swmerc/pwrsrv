@@ -20,7 +20,8 @@ type ProSwitchConfig struct {
 }
 
 type LocalServerConfig struct {
-	Port uint `yaml:"port"`
+	Address string `yaml:"address"`
+	Port    uint   `yaml:"port"`
 }
 
 func getConfig(path string) (Config, error) {
@@ -28,6 +29,7 @@ func getConfig(path string) (Config, error) {
 	config := Config{}
 
 	// Defaults
+	config.LocalServer.Address = "127.0.0.1"
 	config.LocalServer.Port = 8000
 
 	// Load the file over defaults
@@ -37,7 +39,13 @@ func getConfig(path string) (Config, error) {
 		var f *os.File = nil
 
 		if f, err = os.Open(path); err == nil {
-			err = yaml.NewDecoder(f).Decode(&config)
+			// Reject unknown keys so typos and old key names don't silently
+			// leave settings at their defaults
+			decoder := yaml.NewDecoder(f)
+			decoder.KnownFields(true)
+			if err = decoder.Decode(&config); err != nil {
+				err = fmt.Errorf("%s: %w", path, err)
+			}
 			f.Close()
 		}
 	}
@@ -45,11 +53,11 @@ func getConfig(path string) (Config, error) {
 	// Save some potential pain later
 	if err == nil {
 		if len(config.ProSwitch.Url) == 0 {
-			err = fmt.Errorf("%s: empty server URL", path)
+			err = fmt.Errorf("%s: proswitch: empty url", path)
 		} else if len(config.ProSwitch.User) == 0 {
-			err = fmt.Errorf("%s: empty user", path)
+			err = fmt.Errorf("%s: proswitch: empty user", path)
 		} else if len(config.ProSwitch.Password) == 0 {
-			err = fmt.Errorf("%s: empty password", path)
+			err = fmt.Errorf("%s: proswitch: empty password", path)
 		}
 	}
 

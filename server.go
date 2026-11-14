@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -14,15 +16,15 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// startServer just first up the server and never returns
+// startServer just fires up the server and never returns
 func startServer(cfg Config) {
-	s := server{localConfig: cfg.LocalServer, webSwitchConfig: ProSwitch{config: cfg.ProSwitch}}
+	s := server{localConfig: cfg.LocalServer, webSwitchConfig: NewProSwitch(cfg.ProSwitch)}
 	s.run()
 }
 
 type server struct {
 	localConfig     LocalServerConfig
-	webSwitchConfig ProSwitch
+	webSwitchConfig *ProSwitch
 }
 
 func (s *server) routes() http.Handler {
@@ -39,10 +41,12 @@ func (s *server) routes() http.Handler {
 }
 
 func (s *server) run() {
-	log.Infof("Starting server on port %d", s.localConfig.Port)
+	addr := net.JoinHostPort(s.localConfig.Address, strconv.FormatUint(uint64(s.localConfig.Port), 10))
+
+	log.Infof("Starting server on %s", addr)
 	srv := &http.Server{
 		Handler:      logRequest(s.routes()),
-		Addr:         fmt.Sprintf(":%d", s.localConfig.Port),
+		Addr:         addr,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
@@ -63,7 +67,7 @@ func NewOutlet(webOutlet ProSwitchOutlet, switchIndex int) Outlet {
 }
 
 func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
-	if webOutlets, err := s.webSwitchConfig.GetOutlets(); err != nil {
+	if webOutlets, err := s.webSwitchConfig.GetOutlets(r.Context()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		outlets := make([]Outlet, 0, len(webOutlets))
@@ -71,21 +75,15 @@ func (s *server) getAllOutlets(w http.ResponseWriter, r *http.Request) {
 			outlets = append(outlets, NewOutlet(webOutlet, i))
 		}
 
-		if body, err := json.Marshal(outlets); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		} else {
-			w.Write(body)
-		}
+		writeJSON(w, outlets)
 	}
 }
 
 func (s *server) getOutlet(w http.ResponseWriter, r *http.Request) {
 	if index, outlet, err := s.lookupOutlet(r); err != nil {
 		writeLookupError(w, err)
-	} else if body, err := json.Marshal(NewOutlet(outlet, index)); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
-		w.Write(body)
+		writeJSON(w, NewOutlet(outlet, index))
 	}
 }
 
@@ -93,23 +91,32 @@ func (s *server) getOutletState(w http.ResponseWriter, r *http.Request) {
 	if _, outlet, err := s.lookupOutlet(r); err != nil {
 		writeLookupError(w, err)
 	} else {
-		state := "on"
-		if outlet.State == false {
-			state = "off"
+		state := "off"
+		if outlet.State {
+			state = "on"
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(state))
 	}
 }
 
 func (s *server) setOutletState(w http.ResponseWriter, r *http.Request) {
-	if index, _, err := s.lookupOutlet(r); err != nil {
-		writeLookupError(w, err)
-	} else if on, err := getBodyIsOn(r); err != nil {
+	// Check the body first so bad input doesn't cost a trip to the switch
+	if on, err := getBodyIsOn(r); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-	} else if err := s.webSwitchConfig.SetOutlet(index, on); err != nil {
+	} else if index, _, err := s.lookupOutlet(r); err != nil {
+		writeLookupError(w, err)
+	} else if err := s.webSwitchConfig.SetOutlet(r.Context(), index, on); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	if body, err := json.Marshal(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
 	}
 }
 
@@ -121,14 +128,15 @@ func logRequest(h http.Handler) http.Handler {
 	})
 }
 
-// Translate bodys of on/true to true, off/false to false
+// Translate bodys of on/true to true, off/false to false, ignoring case and
+// surrounding whitespace
 func getBodyIsOn(r *http.Request) (bool, error) {
 	result := false
 
 	if bytes, err := io.ReadAll(r.Body); err != nil {
 		return false, err
 	} else {
-		value := string(bytes)
+		value := strings.ToLower(strings.TrimSpace(string(bytes)))
 		switch value {
 		case "true", "on":
 			result = true
@@ -162,13 +170,13 @@ func (s *server) lookupOutlet(r *http.Request) (int, ProSwitchOutlet, error) {
 	// Grab the id
 	id := chi.URLParam(r, "id")
 
-	webOutlets, err := s.webSwitchConfig.GetOutlets()
+	webOutlets, err := s.webSwitchConfig.GetOutlets(r.Context())
 	if err != nil {
 		return -1, ProSwitchOutlet{}, fmt.Errorf("unable to get outlets: %w", err)
 	}
 
-	// See if it is an outlet number
-	if number, err := strconv.Atoi(id); err == nil {
+	// See if it is an outlet number, written plainly (no "02" or "+2")
+	if number, err := strconv.Atoi(id); err == nil && strconv.Itoa(number) == id {
 		if number >= 1 && number <= len(webOutlets) {
 			return number - 1, webOutlets[number-1], nil
 		}

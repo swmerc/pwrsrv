@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/icholy/digest"
 )
@@ -17,6 +20,11 @@ import (
 // than digest auth at some point.
 //
 
+// Upper bound on a single request to the switch, digest round trips included.
+// A local request can make two of these in a row, so keep the total under
+// the local server's 15 second write timeout.
+const proSwitchTimeout = 5 * time.Second
+
 // ProSwitchOutlet is a subset of what Digital Loggers returns
 type ProSwitchOutlet struct {
 	Name  string `json:"name"`
@@ -25,12 +33,37 @@ type ProSwitchOutlet struct {
 
 type ProSwitch struct {
 	config ProSwitchConfig
+	client *http.Client
 }
 
-func (p *ProSwitch) GetOutlets() ([]ProSwitchOutlet, error) {
+// NewProSwitch builds the one client used for every request, so connections
+// to the switch get reused instead of piling up
+func NewProSwitch(config ProSwitchConfig) *ProSwitch {
+	config.Url = strings.TrimRight(config.Url, "/")
+
+	// Optionally ignore cert errors if the config says so.
+	//
+	// NOTE: This allows man in the middle attacks, so don't use it unless your DLI LP9 starts rejecting
+	//       perfectly fine certs and insists on using a self-signed one.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: config.IgnoreCert}
+
+	client := &http.Client{
+		Timeout: proSwitchTimeout,
+		Transport: &digest.Transport{
+			Username:  config.User,
+			Password:  config.Password,
+			Transport: transport,
+		},
+	}
+
+	return &ProSwitch{config: config, client: client}
+}
+
+func (p *ProSwitch) GetOutlets(ctx context.Context) ([]ProSwitchOutlet, error) {
 	var outlets []ProSwitchOutlet
 
-	if body, err := p.get("restapi/relay/outlets/"); err != nil {
+	if body, err := p.get(ctx, "restapi/relay/outlets/"); err != nil {
 		return nil, err
 	} else if err := json.Unmarshal(body, &outlets); err != nil {
 		return nil, err
@@ -39,19 +72,7 @@ func (p *ProSwitch) GetOutlets() ([]ProSwitchOutlet, error) {
 	return outlets, nil
 }
 
-func (p *ProSwitch) GetOutlet(index int) (ProSwitchOutlet, error) {
-	var outlet ProSwitchOutlet
-
-	if body, err := p.get("restapi/relay/outlets/" + fmt.Sprintf("%d/", index)); err != nil {
-		return ProSwitchOutlet{}, err
-	} else if err := json.Unmarshal(body, &outlet); err != nil {
-		return ProSwitchOutlet{}, err
-	}
-
-	return outlet, nil
-}
-
-func (p *ProSwitch) SetOutlet(index int, on bool) error {
+func (p *ProSwitch) SetOutlet(ctx context.Context, index int, on bool) error {
 	path := fmt.Sprintf("restapi/relay/outlets/%d/state/", index)
 	var value string
 
@@ -61,38 +82,22 @@ func (p *ProSwitch) SetOutlet(index int, on bool) error {
 		value = "value=false"
 	}
 
-	_, err := p.put(path, value)
+	_, err := p.put(ctx, path, value)
 	return err
 }
 
-func (p *ProSwitch) get(path string) ([]byte, error) {
-	return p.performOperation(http.MethodGet, path, []byte{})
+func (p *ProSwitch) get(ctx context.Context, path string) ([]byte, error) {
+	return p.performOperation(ctx, http.MethodGet, path, []byte{})
 }
 
-func (p *ProSwitch) put(path string, value string) ([]byte, error) {
-	return p.performOperation(http.MethodPut, path, []byte(value))
+func (p *ProSwitch) put(ctx context.Context, path string, value string) ([]byte, error) {
+	return p.performOperation(ctx, http.MethodPut, path, []byte(value))
 }
 
-func (p *ProSwitch) performOperation(method string, path string, data []byte) ([]byte, error) {
-	// Create a client with digest auth that optionally ignores cert errors if the config says so.
-	//
-	// NOTE: This allows man in the middle attacks, so don't use it unless your DLI LP9 starts rejecting
-	//       perfectly fine certs and insists on using a self-signed one.
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.config.IgnoreCert},
-	}
-
-	client := &http.Client{
-		Transport: &digest.Transport{
-			Username:  p.config.User,
-			Password:  p.config.Password,
-			Transport: transport,
-		},
-	}
-
+func (p *ProSwitch) performOperation(ctx context.Context, method string, path string, data []byte) ([]byte, error) {
 	// Create the request, adding in the headers the device seems to want
 	url := p.config.Url + "/" + path
-	request, err := http.NewRequest(method, url, bytes.NewReader(data))
+	request, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("request: %s", err.Error())
 	}
@@ -101,7 +106,7 @@ func (p *ProSwitch) performOperation(method string, path string, data []byte) ([
 	request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	// Run it
-	response, err := client.Do(request)
+	response, err := p.client.Do(request)
 	if err != nil {
 		return nil, err
 	}

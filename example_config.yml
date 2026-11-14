@@ -1,12 +1,18 @@
-# The power section describes the DLI Pro Switch itself.  All of these
-# need to be provided.  Note that https urls not only work, I recommend
-# them even if they are a pain to set up.
+# The power section describes the DLI Pro Switch itself.  The url, user and
+# password need to be provided.  Note that https urls not only work, I
+# recommend them even if they are a pain to set up.
 proswitch:
   url: http://192.168.1.1
   user: admin
   password: redactedpassword
+  # Skips certificate checks, which allows man in the middle attacks.  Only
+  # use it if the switch insists on a self-signed cert.  Defaults to false.
+  # ignore_cert: true
 
-# The server section is for the web server that is exposed when
-# running the app.  The default port is 8000 if not provided.
+# The server section is for the web server that is exposed when running the
+# app.  It has no authentication of its own, so the address defaults to
+# 127.0.0.1 and only local clients can reach it.  Use 0.0.0.0 to listen on
+# all interfaces.  The default port is 8000 if not provided.
 server:
+  address: 127.0.0.1
   port: 8001
