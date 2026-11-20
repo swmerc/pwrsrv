@@ -67,6 +67,9 @@ Pro Switch (DLI LP9). Single `main` package, no subpackages.
 responses. Update it whenever endpoint behaviour, status codes or response
 formats change.
 
+`POWER.md` describes the same API for other Claude sessions that are given
+the server's base URL and need to drive it. Keep it in sync with `README.txt`.
+
 When the user agrees to a commit, first bring `README.txt` and this file up
 to date with the changes being committed, then commit them together. Don't
 commit and fix the docs afterwards.
